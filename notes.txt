@@ -1,0 +1,81 @@
+Hyper Paramters
+1. Beta values in Adamw --> B1: 0.9  B2: 0.95   and epsilon: 1e-8
+2. Set Gradient norm clipping once after backward pass(loss.backward)   ----> avoid gradient exploding
+    - Gradient clipping is a method where the error derivative is changed or clipped to a threshold during
+     backward propagation through the network, and the clipped gradients are used to update the weights.
+    - By rescaling the error derivative, the updates to the weights will also be rescaled,
+     dramatically decreasing the likelihood of an overflow or underflow.
+
+    - Gradient clipping scales all gradients by the same factor when their combined magnitude exceeds a threshold.
+        step 1: calculate totak gradient magnitude: sqrt(sum(all gradients^ 2))
+        step 2: if this exceeds max_norm, scale all gradients down:
+                each_gradient *= (max_norm/total_magnitude) 
+
+
+3. Cosine Decay learning rate scheduling
+4. new function for optimizer (to optimze weight decay)
+        - Fuse to True : makes computation on GPU lot more faster (in torch.optim.AdamW())
+        - schedule only to decay > 2D Params and keep 1D as they are 
+
+5. B = Batch size which is 488 (0.5e6/ 1024) in GPT2 ... If i continue to train with this big batch size 
+my GPU will explode..... whats the solution? Gradient Accumulation (yay....)
+
+    - Accumulating Grad function  Refresher in Basic DL models
+     Ex: when we call loss.backward() ---> Reach gradients (w,b) to update them
+        epoch 1:  w = 4517.3423
+        epoch 2:  w = 4401.2312  <--- actual weight is (4517.3423+ 4401.2312) after step update but we dont want that..
+
+    We need to make the grad attribute equal to zero at the end of each epoch
+
+    - Gradient accumalation in case of LLMs
+    Gradient accumulation is a process where gradients are calculated over multiple forward passes before updating 
+    the model weights. Instead of updating weights after each batch, the optimizer updates them after a defined 
+    number of batches (or steps) called an accumulation step.
+
+    EX: Minibatch size of 4
+    step 1: forward pass of (say micro batch 1) is calculated (in minibatch)
+    step 2: Gradients are not immediately used to update weights: instead they are accumulated
+    step 3: forward pass and gradient calculation are repeated for other 3 micro batches
+    step 4: after specified accumalation_step, the accumulated gradients are used to update weights
+    step 5: gradients are zero (zero_grad), and process repeats
+
+Multi GPU Training
+
+-Notes on wrapping the model with DistributedDataPallel module
+    step 1: ----> forward pass of each batch calculated in each local rank
+    step 2: <---- backward pass in each independent GPU
+    step 3: Hold Gadients in each independent GPU
+
+    step 4: What DDP does is once the backward pass is over it will call "allreduce"
+            and basically does an average across all ranks of their gradients
+
+    step 5: It will deposite their average on every single rank and every single rank end up
+            on the average of all gradients (not the one it calculated)
+
+    Note: DDP is dispatching communications between gradients while the backward pass happening
+        So when we call loss.backward() it wll do the back pass and then syncronize the gradients
+    
+    Another Issue : (  with Gradient Accumulation
+
+    - When we call the loss.backward() DDP also acts and trying to average out gradients
+    - But we dont want to average out gradients for every single batch although we want 
+    - to get the averaged gradient only for the accumulated gradient at the end of 
+    each accumalation_step
+
+    But Luckyly we got no_sync() function in pytorch .. Go back to accumulation loop 
+    - instead wrpping each iters to no_sync() we got a trick (from source code function of no_sync())
+    - DDP should only turn on when micro steps are in the last step
+
+
+Key words in DDP;
+
+1. Process: an instance of the python. One process can be used to control on GPU
+2. Node : A node is the same as a computer with all of its resource
+3. World_size: Total number of GPUs available. it is a product of total nodes and total GPUs per node. 
+   For example, If there are 2 server(cuda2,cuda4) and 3 GPUs per server, then the World_size is 6
+4. Rank: is is and ID to identify a process among all the processes
+   For example, If we have 2 nodes(cuda2,cuda4) with 3 GPUs each, the rank will vary from 0-5. Rank 0 will identify process 0 and so on.
+5. Local Rank: Rank is Used to identify all the nodes, where are local rank is used to identify the local node.
+   Rank can be considered as global rank. For example , a process on node 2 (cuda4) can have rank 3 and local rank 0
+   This implies among all the processes, it has rank 3 where as local machine it has rank 0
+   

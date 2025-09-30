@@ -1,0 +1,26 @@
+edu_fineweb10B/
+*.npy
+
+# Checkpoints and logs
+log/
+Checkpoints/
+*.pt
+*.pth
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
